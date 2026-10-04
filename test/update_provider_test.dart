@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:scilist/core/constants/update_constants.dart';
@@ -29,6 +31,18 @@ class _FailingUpdateService extends UpdateService {
   Future<UpdateInfo?> check() async => throw Exception('сеть недоступна');
 }
 
+class _ControlledUpdateService extends _FakeUpdateService {
+  _ControlledUpdateService() : super(null);
+
+  final response = Completer<UpdateInfo?>();
+
+  @override
+  Future<UpdateInfo?> check() {
+    checkCalls++;
+    return response.future;
+  }
+}
+
 const _update = UpdateInfo(
   version: '1.1.1',
   notes: 'Заметки',
@@ -42,6 +56,64 @@ Future<SharedPreferences> _prefs({Map<String, Object> values = const {}}) async 
 }
 
 void main() {
+  for (final result in UpdateCheckResult.values) {
+    test('concurrent checks share the future and result: $result', () async {
+      final service = _ControlledUpdateService();
+      final provider = UpdateProvider(await _prefs(), service: service);
+      addTearDown(provider.dispose);
+
+      final first = provider.checkForUpdates(force: true);
+      final second = provider.checkForUpdates();
+      final forced = provider.checkForUpdates(force: true);
+
+      expect(second, same(first));
+      expect(forced, same(first));
+      expect(provider.isChecking, isTrue);
+      await Future<void>.delayed(Duration.zero);
+      expect(service.checkCalls, 1);
+
+      if (result == UpdateCheckResult.failed) {
+        service.response.completeError(Exception('network unavailable'));
+      } else {
+        service.response.complete(
+          result == UpdateCheckResult.updateAvailable ? _update : null,
+        );
+      }
+
+      expect(await Future.wait([first, second, forced]), [result, result, result]);
+      expect(provider.isChecking, isFalse);
+      expect(provider.availableUpdate,
+          result == UpdateCheckResult.updateAvailable ? _update : null);
+      expect(provider.lastCheckAt,
+          result == UpdateCheckResult.failed ? isNull : isNotNull);
+
+      final next = provider.checkForUpdates(force: true);
+      expect(next, isNot(same(first)));
+      expect(await next, result);
+      expect(service.checkCalls, 2);
+    });
+  }
+
+  test('a listener can join the check when checking starts', () async {
+    final service = _ControlledUpdateService();
+    final provider = UpdateProvider(await _prefs(), service: service);
+    addTearDown(provider.dispose);
+    Future<UpdateCheckResult>? listenerCheck;
+    provider.addListener(() {
+      if (provider.isChecking) {
+        listenerCheck = provider.checkForUpdates(force: true);
+      }
+    });
+
+    final first = provider.checkForUpdates(force: true);
+    expect(listenerCheck, same(first));
+    await Future<void>.delayed(Duration.zero);
+    expect(service.checkCalls, 1);
+
+    service.response.complete(_update);
+    expect(await first, UpdateCheckResult.updateAvailable);
+  });
+
   test('первая проверка при старте возвращает обновление', () async {
     final service = _FakeUpdateService(_update);
     final provider = UpdateProvider(await _prefs(), service: service);
