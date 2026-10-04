@@ -142,7 +142,7 @@ jobs:
           git add pubspec.yaml
           git commit -m "chore(release): ${{ steps.version.outputs.tag }} [skip ci]"
           git tag "${{ steps.version.outputs.tag }}"
-          git push origin HEAD:master --follow-tags
+          git push --atomic origin HEAD:master "refs/tags/${{ steps.version.outputs.tag }}"
 
       - name: Create GitHub Release
         env:
