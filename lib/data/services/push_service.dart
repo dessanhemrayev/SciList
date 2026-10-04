@@ -9,7 +9,7 @@ import '../../core/constants/push_constants.dart';
 /// топик [PushConstants.topic], а отправляет в него сервисный аккаунт из CI
 /// (см. `docs/fcm-update-notifications.md`).
 ///
-/// Любая ошибка гасится и оставляет [isAvailable] равным false: push дополняет
+/// Ошибка инициализации гасится и оставляет [isAvailable] равным false: push дополняет
 /// проверку обновлений при запуске и не должен ломать запуск. Именно так себя
 /// ведёт приложение на устройствах без Google Play Services.
 class PushService {
