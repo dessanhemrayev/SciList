@@ -12,6 +12,8 @@ import '../widgets/layout/section_header.dart';
 import '../providers/journal_provider.dart';
 import '../providers/history_provider.dart';
 import '../providers/favorites_provider.dart';
+import '../providers/update_provider.dart';
+import '../widgets/update/update_dialog.dart';
 import '../../data/models/journal.dart';
 import '../../core/utils/issn_validator.dart';
 
@@ -26,6 +28,19 @@ class _HomeScreenState extends State<HomeScreen> {
   final _issnController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   final _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    // Диалог обновления только после первого кадра, когда Navigator построен
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkForUpdatesOnStartup());
+  }
+
+  Future<void> _checkForUpdatesOnStartup() async {
+    final update = await context.read<UpdateProvider>().checkOnStartup();
+    if (update == null || !mounted) return;
+    await presentUpdateDialog(context, update);
+  }
 
   @override
   void dispose() {
@@ -74,6 +89,11 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: Icon(Icons.history_rounded, color: colorScheme.onSurface),
               onPressed: () => context.push('/history'),
               tooltip: 'История',
+            ),
+            IconButton(
+              icon: Icon(Icons.settings_outlined, color: colorScheme.onSurface),
+              onPressed: () => context.push('/settings'),
+              tooltip: 'Настройки',
             ),
           ],
         ),

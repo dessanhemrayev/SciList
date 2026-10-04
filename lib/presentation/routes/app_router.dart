@@ -3,6 +3,7 @@ import '../../presentation/screens/home_screen.dart';
 import '../../presentation/screens/journal_detail_screen.dart';
 import '../../presentation/screens/history_screen.dart';
 import '../../presentation/screens/favorites_screen.dart';
+import '../../presentation/screens/settings_screen.dart';
 
 final GoRouter appRouter = GoRouter(
   initialLocation: '/',
@@ -29,6 +30,11 @@ final GoRouter appRouter = GoRouter(
           path: 'favorites',
           name: 'favorites',
           builder: (context, state) => const FavoritesScreen(),
+        ),
+        GoRoute(
+          path: 'settings',
+          name: 'settings',
+          builder: (context, state) => const SettingsScreen(),
         ),
       ],
     ),
