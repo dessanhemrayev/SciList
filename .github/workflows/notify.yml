@@ -1,0 +1,111 @@
+name: Notify about release
+
+# Ручная отправка push-уведомления о релизе: проверить FCM после настройки
+# или переотправить уведомление, не выпуская новую версию.
+# Повторный запуск (Re-run) прогона Release для этого не подходит: он заново
+# посчитает версию и упрётся в уже существующий тег.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Тег релиза, например v1.2.0. Пусто — последний релиз'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Resolve release tag
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="$INPUT_TAG"
+          if [ -z "$tag" ]; then
+            tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          fi
+
+          # Тег попадает в JSON-запрос без экранирования, поэтому формат строгий
+          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Тег '$tag' не похож на vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+
+          # Уведомлять можно только о релизе, у которого уже есть APK
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Релиз: $tag"
+
+      - name: Read service account email
+        id: service-account
+        env:
+          FCM_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -z "$FCM_SERVICE_ACCOUNT_JSON" ]; then
+            echo "::error::Секрет FCM_SERVICE_ACCOUNT_JSON не задан"
+            exit 1
+          fi
+          email=$(printf '%s' "$FCM_SERVICE_ACCOUNT_JSON" | jq -r '.client_email // empty')
+          if [ -z "$email" ]; then
+            echo "::error::В FCM_SERVICE_ACCOUNT_JSON нет client_email"
+            exit 1
+          fi
+          echo "email=$email" >> "$GITHUB_OUTPUT"
+
+      # Те же параметры, что и в release.yml (см. docs/fcm-update-notifications.md).
+      # token_format: access_token обязателен: auth_token для ключа
+      # сервисного аккаунта — самоподписанный JWT, FCM v1 его не принимает.
+      - name: Authenticate in Google Cloud
+        id: gcp-auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
+          create_credentials_file: false
+          service_account: ${{ steps.service-account.outputs.email }}
+          token_format: access_token
+
+      # Здесь continue-on-error не нужен: при ручном запуске красный прогон
+      # и есть сигнал, что уведомление не ушло.
+      - name: Send notification
+        env:
+          FCM_PROJECT_ID: ${{ secrets.FCM_PROJECT_ID }}
+          FCM_TOKEN: ${{ steps.gcp-auth.outputs.access_token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          if [ -z "$FCM_PROJECT_ID" ] || [ -z "$FCM_TOKEN" ]; then
+            echo "::error::Не задан FCM_PROJECT_ID или не выпущен OAuth-токен"
+            exit 1
+          fi
+
+          payload=$(cat <<JSON
+          {
+            "message": {
+              "topic": "updates",
+              "notification": {
+                "title": "SciList ${RELEASE_TAG}",
+                "body": "Доступно обновление ${RELEASE_TAG}"
+              },
+              "data": { "version": "${RELEASE_TAG}" }
+            }
+          }
+          JSON
+          )
+
+          curl --fail-with-body -sS -X POST \
+            "https://fcm.googleapis.com/v1/projects/${FCM_PROJECT_ID}/messages:send" \
+            -H "Authorization: Bearer ${FCM_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$payload"
+
+          {
+            echo "### Push-уведомление"
+            echo ""
+            echo "- ✅ Уведомление о \`${RELEASE_TAG}\` отправлено в топик \`updates\`."
+          } >> "$GITHUB_STEP_SUMMARY"

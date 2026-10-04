@@ -128,6 +128,43 @@ JSON-ключ лучше сохранить **в одну строку** (minify
 
 Без второй роли шаг `Authenticate in Google Cloud` не сможет выпустить токен.
 
+Кроме ролей, в проекте должен быть **включён IAM Service Account Credentials API** (`iamcredentials.googleapis.com`).
+По умолчанию он выключен, и без него токен тоже не выпускается (см. [Диагностика](#5-диагностика-ошибок)).
+Включить: [APIs & Services → Library](https://console.cloud.google.com/apis/library/iamcredentials.googleapis.com) → проект `scilist-739e7` → **Enable**. После включения подождите 2–5 минут.
+
+### Как получить `FCM_SERVICE_ACCOUNT_JSON`
+
+Ключ создаётся в Firebase Console для сервисного аккаунта `firebase-adminsdk-…`, который проект получает автоматически.
+Нужна роль Owner или Editor в проекте, иначе кнопка создания ключа недоступна.
+
+**1. Создать ключ.**
+
+1. Откройте [Firebase Console](https://console.firebase.google.com/) и выберите проект `scilist-739e7`.
+2. Шестерёнка рядом с **Project Overview** → **Project settings** → вкладка **Service accounts**.
+3. **Generate new private key** и подтвердить. Скачается файл вида `scilist-739e7-firebase-adminsdk-xxxxx-xxxxxxxxxx.json`.
+
+**2. Выдать роль и включить API.**
+
+1. В [Google Cloud Console → IAM → Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts) (проект `scilist-739e7`) откройте `firebase-adminsdk-…` → вкладка **Permissions**.
+2. **Grant access**: в поле принципала вставьте email самого этого аккаунта, роль **Service Account Token Creator**.
+3. Включите IAM Service Account Credentials API (ссылка выше).
+
+**3. Положить в GitHub.** В репозитории: **Settings → Secrets and variables → Actions → New repository secret**:
+
+- `FCM_SERVICE_ACCOUNT_JSON`: **всё содержимое** скачанного файла, от `{` до `}`.
+- `FCM_PROJECT_ID`: `scilist-739e7`.
+
+Скопировать JSON в одну строку (как рекомендовано выше) и положить в буфер обмена:
+
+```powershell
+Get-Content -Raw "путь\к\файлу.json" | ConvertFrom-Json | ConvertTo-Json -Compress | Set-Clipboard
+```
+
+**4. Убрать файл с компьютера.** В отличие от `google-services.json`, этот ключ **секретный**: он даёт право отправлять сообщения от имени проекта.
+Удалите скачанный файл после создания секрета и не добавляйте его в репозиторий: в `.gitignore` расширение `.json` не исключено.
+
+Если ключ утёк или потерян, отзовите его: Google Cloud Console → IAM → Service Accounts → `firebase-adminsdk-…` → вкладка **Keys**. Затем создайте новый и обновите секрет.
+
 **Шаги в `release.yml`** после `Create GitHub Release`. У всех `if: steps.version.outputs.notify == 'true'` и `continue-on-error: true`:
 
 1. `Read service account email` достаёт `client_email` из JSON через `jq` — отдельный секрет не нужен, значение не разъедется с ключом.
@@ -169,7 +206,42 @@ Authorization: Bearer <токен>
 - `continue-on-error: true`: ошибка push не должна делать красным уже выпущенный релиз.
 - Если секреты не заданы, шаг печатает `::warning::` и выходит с кодом 0 — релиз остаётся зелёным.
 
-## 4. Нюансы
+## 4. Ручная отправка уведомления
+
+Workflow `.github/workflows/notify.yml` отправляет уведомление о релизе без выпуска новой версии. Нужен, чтобы проверить FCM после настройки или переотправить уведомление.
+
+Запуск: **Actions → Notify about release → Run workflow**. В поле `tag` можно указать тег (`v1.3.0`), пустое поле означает последний релиз.
+Тег проверяется по формату `vMAJOR.MINOR.PATCH`, и релиз с таким тегом должен существовать.
+
+Отличия от шагов в `release.yml`:
+
+- Здесь нет `continue-on-error`: при ручном запуске красный прогон и есть сигнал, что уведомление не ушло. Причина видна в логе упавшего шага.
+- Запустить workflow можно только после того, как `notify.yml` попал в `master`: кнопка Run workflow появляется для файлов на ветке по умолчанию.
+- Запускать могут пользователи с правом записи в репозиторий.
+
+**Повторный запуск (Re-run) прогона `Release` для этого не подходит.** Он возьмёт тот же коммит, заново посчитает версию и упрётся в уже существующий тег. Для повторной отправки используйте `notify.yml`.
+
+Параметры авторизации и payload дублируются в `release.yml` и `notify.yml`. При изменении (например, текста уведомления или топика) правьте оба файла.
+
+Отправить тестовое сообщение без GitHub можно из Firebase Console: Messaging → New campaign → топик `updates`. Это проверяет приложение и подписку отдельно от пайплайна.
+
+## 5. Диагностика ошибок
+
+Результат отправки в `release.yml` смотрите в summary прогона, в `notify.yml` — в логе упавшего шага.
+
+- **`403 PERMISSION_DENIED … IAM Service Account Credentials API has not been used in project … or it is disabled`** (`SERVICE_DISABLED`).
+  Шаг `Authenticate in Google Cloud`. Не включён IAM Service Account Credentials API. Включите его по ссылке из ошибки или в Library (см. раздел 3), подождите 2–5 минут и запустите `notify.yml`.
+  Сопутствующее предупреждение `Секреты … не заданы или токен не выпущен` в следующем шаге вызвано тем же: токена нет.
+- **`403 PERMISSION_DENIED`, в тексте `iam.serviceAccounts.getAccessToken`**.
+  Токен выпустить не могут из-за прав: у сервисного аккаунта нет роли Service Account Token Creator на самом себе.
+- **`401` от `fcm.googleapis.com`**.
+  Отправлен не OAuth access token. Проверьте, что в `Authenticate in Google Cloud` указан `token_format: access_token`, а в запросе используется `outputs.access_token`, а не `auth_token`.
+- **Релиз зелёный, а в summary «⚠️ Запрос в FCM не отправлялся»**.
+  Не задан `FCM_PROJECT_ID` или не выпущен токен. Смотрите предыдущие строки summary.
+- **Секреты заданы, но email не прочитан**.
+  В `FCM_SERVICE_ACCOUNT_JSON` нет `client_email`: скорее всего, в секрет попал не тот файл (например, `google-services.json` вместо ключа сервисного аккаунта).
+
+## 6. Нюансы
 
 - Доставка FCM не мгновенная и не гарантирована. Для уведомлений об обновлениях этого достаточно.
 - Устройства без Google Play Services не получат push. Для них остаётся проверка при запуске.
