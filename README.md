@@ -23,3 +23,14 @@ flutter analyze      # статический анализ
 ```
 
 Приложение не требует ключей и авторизации: используется открытый API РЦНИ.
+
+## Релизы и обновления
+
+Версия обновляется автоматически, а APK собирается и публикуется в GitHub Releases при каждом пуше в `master`
+(`.github/workflows/release.yml`). Тип повышения версии определяется по сообщениям коммитов:
+`feat:` — minor, `type!:` или `BREAKING CHANGE` — major, остальное — patch.
+
+## Документация
+
+- [Подпись Android-релизов](docs/android-signing.md) — создание keystore, секреты GitHub Actions, локальная подписанная сборка.
+- [Push-уведомления о релизах (FCM)](docs/fcm-update-notifications.md) — план: уведомления о `feat:` и `fix:` релизах.
