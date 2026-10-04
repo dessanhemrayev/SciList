@@ -14,6 +14,7 @@ class UpdateProvider extends ChangeNotifier {
   UpdateInfo? _availableUpdate;
   String? _currentVersion;
   bool _isChecking = false;
+  Future<UpdateCheckResult>? _checkFuture;
 
   UpdateProvider(this._prefs, {UpdateService? service})
       : _service = service ?? UpdateService() {
@@ -65,13 +66,20 @@ class UpdateProvider extends ChangeNotifier {
   }
 
   /// Ручная проверка игнорирует таймер.
-  Future<UpdateCheckResult> checkForUpdates({bool force = false}) async {
-    if (_isChecking) return UpdateCheckResult.failed;
-    if (!force && !isCheckDue) return UpdateCheckResult.upToDate;
+  Future<UpdateCheckResult> checkForUpdates({bool force = false}) {
+    final pendingCheck = _checkFuture;
+    if (pendingCheck != null) return pendingCheck;
+    if (!force && !isCheckDue) {
+      return Future.value(UpdateCheckResult.upToDate);
+    }
 
     _isChecking = true;
+    final check = _checkFuture = Future<UpdateCheckResult>.microtask(_performCheck);
     notifyListeners();
+    return check;
+  }
 
+  Future<UpdateCheckResult> _performCheck() async {
     var result = UpdateCheckResult.failed;
     try {
       _currentVersion ??= await _service.getCurrentVersion();
@@ -91,16 +99,20 @@ class UpdateProvider extends ChangeNotifier {
     } catch (_) {
       return UpdateCheckResult.failed;
     } finally {
-      _isChecking = false;
       // При неудаче время не запоминаем: иначе после запуска без сети
       // следующая проверка отложилась бы ещё на 6 часов.
-      if (result != UpdateCheckResult.failed) {
-        await _prefs.setInt(
-          UpdateConstants.lastCheckKey,
-          DateTime.now().millisecondsSinceEpoch,
-        );
+      try {
+        if (result != UpdateCheckResult.failed) {
+          await _prefs.setInt(
+            UpdateConstants.lastCheckKey,
+            DateTime.now().millisecondsSinceEpoch,
+          );
+        }
+      } finally {
+        _checkFuture = null;
+        _isChecking = false;
+        notifyListeners();
       }
-      notifyListeners();
     }
   }
 
