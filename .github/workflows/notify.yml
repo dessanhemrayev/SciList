@@ -38,8 +38,15 @@ jobs:
             exit 1
           fi
 
-          # Уведомлять можно только о релизе, у которого уже есть APK
-          gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null
+          # Уведомлять можно только о релизе, у которого уже есть APK. Приложение
+          # ищет ассет по расширению .apk без учёта регистра (UpdateInfo), так же
+          # проверяем и здесь: иначе пользователь тапнет по уведомлению и не найдёт
+          # обновления. Заодно проверка подтверждает, что релиз существует.
+          assets=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          if ! printf '%s\n' "$assets" | grep -qiE '\.apk$'; then
+            echo "::error::У релиза $tag нет APK-ассета, уведомление не отправлено"
+            exit 1
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "Релиз: $tag"
 
