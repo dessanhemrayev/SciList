@@ -92,7 +92,7 @@ class PushService {
     try {
       await _messaging.subscribeToTopic(PushConstants.topic);
     } catch (_) {
-      // Подписка не удалась — уведомления просто не придут
+      rethrow;
     }
   }
 
