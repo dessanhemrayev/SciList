@@ -57,13 +57,22 @@ jobs:
           fi
           build=$((build + 1))
 
+          # Push-уведомление только для значимых изменений: feat, fix и любой breaking
+          # change. Для chore/docs/test уведомление не уходит, релиз виден при обычной проверке.
+          if echo "$messages" | grep -qE '^(feat|fix)(\([^)]*\))?!?:|^[a-z]+(\([^)]*\))?!:|BREAKING CHANGE'; then
+            notify=true
+          else
+            notify=false
+          fi
+
           new_name="$major.$minor.$patch"
           sed -i -E "s/^version:.*/version: $new_name+$build/" pubspec.yaml
 
           echo "name=$new_name" >> "$GITHUB_OUTPUT"
           echo "build=$build" >> "$GITHUB_OUTPUT"
           echo "tag=v$new_name" >> "$GITHUB_OUTPUT"
-          echo "Version: $current -> $new_name+$build"
+          echo "notify=$notify" >> "$GITHUB_OUTPUT"
+          echo "Version: $current -> $new_name+$build (notify=$notify)"
 
       # ---------- Сборка ----------
       - uses: actions/setup-java@v4
@@ -145,6 +154,7 @@ jobs:
           git push --atomic origin HEAD:master "refs/tags/${{ steps.version.outputs.tag }}"
 
       - name: Create GitHub Release
+        id: release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -152,3 +162,113 @@ jobs:
             "SciList-${{ steps.version.outputs.tag }}.apk" \
             --title "SciList ${{ steps.version.outputs.tag }}" \
             --generate-notes
+
+      # ---------- Push-уведомление о релизе ----------
+      # Только после создания релиза: иначе пользователь тапнет по уведомлению,
+      # а APK ещё не загружен. continue-on-error: ошибка push не должна
+      # делать красным уже выпущенный релиз.
+      #
+      # Сервисный аккаунт нужен в двух ролях: Firebase Cloud Messaging API Admin
+      # (отправка) и Service Account Token Creator на самом себе (выпуск
+      # OAuth-токена, иначе auth не сможет его mint'ить).
+      - name: Read service account email
+        id: service-account
+        if: steps.version.outputs.notify == 'true'
+        continue-on-error: true
+        env:
+          FCM_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -z "$FCM_SERVICE_ACCOUNT_JSON" ]; then
+            echo "email=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          email=$(printf '%s' "$FCM_SERVICE_ACCOUNT_JSON" | jq -r '.client_email // empty')
+          if [ -z "$email" ]; then
+            echo "::warning::В FCM_SERVICE_ACCOUNT_JSON нет client_email"
+          fi
+          echo "email=$email" >> "$GITHUB_OUTPUT"
+
+      # token_format: access_token обязателен. Без него auth_token для ключа
+      # сервисного аккаунта — самоподписанный JWT, а FCM v1 ждёт OAuth-токен
+      # и отвечает 401.
+      - name: Authenticate in Google Cloud
+        id: gcp-auth
+        if: steps.version.outputs.notify == 'true'
+        continue-on-error: true
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
+          create_credentials_file: false
+          service_account: ${{ steps.service-account.outputs.email }}
+          token_format: access_token
+
+      - name: Notify about release
+        id: notify
+        if: steps.version.outputs.notify == 'true'
+        continue-on-error: true
+        env:
+          FCM_PROJECT_ID: ${{ secrets.FCM_PROJECT_ID }}
+          FCM_TOKEN: ${{ steps.gcp-auth.outputs.access_token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if [ -z "$FCM_PROJECT_ID" ] || [ -z "$FCM_TOKEN" ]; then
+            echo "::warning::Секреты FCM_PROJECT_ID / FCM_SERVICE_ACCOUNT_JSON не заданы или токен не выпущен, уведомление не отправлено"
+            exit 0
+          fi
+
+          # Тег формируется шагом Bump version и состоит из цифр и точек,
+          # поэтому экранировать его для JSON не нужно
+          payload=$(cat <<JSON
+          {
+            "message": {
+              "topic": "updates",
+              "notification": {
+                "title": "SciList ${RELEASE_TAG}",
+                "body": "Доступно обновление ${RELEASE_TAG}"
+              },
+              "data": { "version": "${RELEASE_TAG}" }
+            }
+          }
+          JSON
+          )
+
+          curl --fail-with-body -sS -X POST \
+            "https://fcm.googleapis.com/v1/projects/${FCM_PROJECT_ID}/messages:send" \
+            -H "Authorization: Bearer ${FCM_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$payload"
+
+          # Ранний выход с кодом 0 (нет секретов) тоже даёт outcome=success,
+          # поэтому факт отправки фиксируем отдельным выходом
+          echo "sent=true" >> "$GITHUB_OUTPUT"
+
+      # continue-on-error прячет ошибки, а релиз при этом зелёный.
+      # Поэтому результат push-шагов выводится в summary прогона.
+      - name: Report push status
+        if: always() && steps.version.outputs.notify == 'true' && steps.release.outcome == 'success'
+        continue-on-error: true
+        env:
+          ACCOUNT_OUTCOME: ${{ steps.service-account.outcome }}
+          ACCOUNT_EMAIL: ${{ steps.service-account.outputs.email }}
+          AUTH_OUTCOME: ${{ steps.gcp-auth.outcome }}
+          AUTH_TOKEN: ${{ steps.gcp-auth.outputs.access_token }}
+          NOTIFY_OUTCOME: ${{ steps.notify.outcome }}
+          NOTIFY_SENT: ${{ steps.notify.outputs.sent }}
+        run: |
+          {
+            echo "### Push-уведомление о релизе"
+            echo ""
+            if [ "$ACCOUNT_OUTCOME" != "success" ] || [ -z "$ACCOUNT_EMAIL" ]; then
+              echo "- ⚠️ Не прочитан email сервисного аккаунта. Проверьте секрет \`FCM_SERVICE_ACCOUNT_JSON\`."
+            fi
+            if [ "$AUTH_OUTCOME" != "success" ] || [ -z "$AUTH_TOKEN" ]; then
+              echo "- ⚠️ OAuth-токен не выпущен, уведомление не отправлено. Нужна роль *Service Account Token Creator* на самом сервисном аккаунте. Лог: \`Authenticate in Google Cloud\`."
+            fi
+            if [ "$NOTIFY_SENT" = "true" ]; then
+              echo "- ✅ Уведомление отправлено в топик \`updates\`."
+            elif [ "$NOTIFY_OUTCOME" = "success" ]; then
+              echo "- ⚠️ Запрос в FCM не отправлялся: не задан \`FCM_PROJECT_ID\` или не выпущен токен. Лог: \`Notify about release\`."
+            else
+              echo "- ⚠️ Запрос в FCM не прошёл, уведомление не отправлено. Лог: \`Notify about release\`."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

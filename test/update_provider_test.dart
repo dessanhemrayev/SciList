@@ -10,7 +10,7 @@ import 'package:scilist/presentation/providers/update_provider.dart';
 class _FakeUpdateService extends UpdateService {
   _FakeUpdateService(this.update);
 
-  final UpdateInfo? update;
+  UpdateInfo? update;
   int checkCalls = 0;
 
   @override
@@ -157,6 +157,103 @@ void main() {
 
     expect(provider.isSkipped('1.1.1'), isTrue);
     expect(await provider.checkOnStartup(), isNull);
+  });
+
+  test('при запуске из уведомления диалог показывается один раз', () async {
+    final service = _FakeUpdateService(_update);
+    final provider = UpdateProvider(await _prefs(), service: service);
+
+    // Проверка при старте и проверка по push обе находят релиз,
+    // но второй диалог уже не показывается
+    expect(await provider.checkOnStartup(), _update);
+    expect(await provider.checkFromPush(), isNull);
+  });
+
+  test('параллельные проверки при старте и по push делят один запрос', () async {
+    final service = _ControlledUpdateService();
+    final provider = UpdateProvider(await _prefs(), service: service);
+    addTearDown(provider.dispose);
+
+    // Так выглядит реальный запуск из уведомления: обе проверки стартуют
+    // в одном кадре и делят один HTTP-запрос
+    final startup = provider.checkOnStartup();
+    final push = provider.checkFromPush();
+
+    await Future<void>.delayed(Duration.zero);
+    expect(service.checkCalls, 1);
+
+    service.response.complete(_update);
+    final results = await Future.wait([startup, push]);
+
+    expect(results.whereType<UpdateInfo>(), [_update]);
+  });
+
+  test('проверка по push различает сбой сети и отсутствие обновлений', () async {
+    final failing = UpdateProvider(await _prefs(), service: _FailingUpdateService());
+    final failed = await failing.checkFromPushDetailed();
+    expect(failed.result, UpdateCheckResult.failed);
+    expect(failed.update, isNull);
+
+    final upToDate = UpdateProvider(
+      await _prefs(),
+      service: _FakeUpdateService(null),
+    );
+    final none = await upToDate.checkFromPushDetailed();
+    expect(none.result, UpdateCheckResult.upToDate);
+    expect(none.update, isNull);
+  });
+
+  test('повторная проверка по push находит релиз, вышедший после первой', () async {
+    final service = _FakeUpdateService(null);
+    final provider = UpdateProvider(await _prefs(), service: service);
+
+    expect((await provider.checkFromPushDetailed()).update, isNull);
+
+    service.update = _update;
+    final retry = await provider.checkFromPushDetailed();
+    expect(retry.result, UpdateCheckResult.updateAvailable);
+    expect(retry.update, _update);
+  });
+
+  test('повторный push той же версии не открывает диалог заново', () async {
+    final provider = UpdateProvider(
+      await _prefs(),
+      service: _FakeUpdateService(_update),
+    );
+
+    expect(await provider.checkFromPush(), _update);
+    expect(await provider.checkFromPush(), isNull);
+  });
+
+  test('новая версия после показанной предлагается снова', () async {
+    final service = _FakeUpdateService(_update);
+    final provider = UpdateProvider(await _prefs(), service: service);
+
+    expect(await provider.checkOnStartup(), _update);
+
+    service.update = const UpdateInfo(
+      version: '1.2.0',
+      notes: '',
+      apkUrl: 'https://example.com/SciList-v1.2.0.apk',
+      pageUrl: 'https://example.com/releases/tag/v1.2.0',
+    );
+
+    expect(await provider.checkFromPush(), service.update);
+  });
+
+  test('ручная проверка показывает версию, даже если диалог уже был', () async {
+    final provider = UpdateProvider(
+      await _prefs(),
+      service: _FakeUpdateService(_update),
+    );
+
+    expect(await provider.checkOnStartup(), _update);
+    // Пользователь сам нажал кнопку — блокировка на него не распространяется
+    expect(
+      await provider.checkForUpdates(force: true),
+      UpdateCheckResult.updateAvailable,
+    );
+    expect(provider.availableUpdate, _update);
   });
 
   test('ручная проверка игнорирует таймер', () async {

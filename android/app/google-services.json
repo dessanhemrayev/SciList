@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "847415342704",
+    "project_id": "scilist-739e7",
+    "storage_bucket": "scilist-739e7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:847415342704:android:a3dc0f64fbb21efb3166b5",
+        "android_client_info": {
+          "package_name": "com.dessanhemrayev.scilist"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCp_sZFrExLYlwgYyJ301O-6c6MDsXwGQY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
