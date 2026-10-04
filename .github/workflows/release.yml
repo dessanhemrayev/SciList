@@ -24,6 +24,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Rebase onto latest master
+        run: |
+          git fetch origin master
+          git rebase origin/master
+
       # ---------- Версионирование ----------
       # feat: -> minor, "type!:" или BREAKING CHANGE -> major, всё остальное -> patch
       # Формат в pubspec.yaml: MAJOR.MINOR.PATCH+BUILD
