@@ -7,6 +7,7 @@ import 'presentation/routes/app_router.dart';
 import 'presentation/providers/journal_provider.dart';
 import 'presentation/providers/history_provider.dart';
 import 'presentation/providers/favorites_provider.dart';
+import 'presentation/providers/update_provider.dart';
 import 'core/theme/app_theme.dart';
 
 Future<void> main() async {
@@ -33,6 +34,9 @@ Future<void> main() async {
         ),
         ChangeNotifierProvider(
           create: (_) => FavoritesProvider(prefs),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => UpdateProvider(prefs),
         ),
       ],
       child: const SciListApp(),
