@@ -45,7 +45,11 @@ class UpdateService {
         _lastCheckFailed = true;
         return null;
       }
-      return UpdateInfo.fromGitHubJson(Map<String, dynamic>.from(data));
+      final updateInfo = UpdateInfo.fromGitHubJson(Map<String, dynamic>.from(data));
+      if (updateInfo == null) {
+        _lastCheckFailed = true;
+      }
+      return updateInfo;
     } catch (_) {
       _lastCheckFailed = true;
       return null;
