@@ -53,15 +53,34 @@ class UpdateProvider extends ChangeNotifier {
     return _prefs.getString(UpdateConstants.skippedVersionKey) == version;
   }
 
+  /// Версии, для которых диалог уже предлагался в этой сессии.
+  ///
+  /// При запуске из уведомления срабатывают две проверки одновременно — при
+  /// старте и по push, — и без этого диалоги открылись бы друг на друге.
+  final Set<String> _promptedVersions = <String>{};
+
   /// Проверка при старте: не чаще раза в [checkInterval].
   /// Возвращает обновление, о котором стоит показать диалог, иначе null.
   Future<UpdateInfo?> checkOnStartup() async {
     if (!isCheckDue) return null;
 
     final result = await checkForUpdates();
-    final update = _availableUpdate;
-    if (result != UpdateCheckResult.updateAvailable || update == null) return null;
-    if (isSkipped(update.version)) return null;
+    return _claimForPrompt(result, _availableUpdate);
+  }
+
+  /// Проверка по push-уведомлению: таймер игнорируется, но пропущенная
+  /// пользователем версия по-прежнему не предлагается.
+  Future<UpdateInfo?> checkFromPush() async {
+    final result = await checkForUpdates(force: true);
+    return _claimForPrompt(result, _availableUpdate);
+  }
+
+  /// Отдаёт версию под диалог ровно один раз: пропущенную пользователем,
+  /// уже показанную или при неудачной проверке — нет.
+  UpdateInfo? _claimForPrompt(UpdateCheckResult result, UpdateInfo? update) {
+    if (result != UpdateCheckResult.updateAvailable) return null;
+    if (update == null || isSkipped(update.version)) return null;
+    if (!_promptedVersions.add(update.version)) return null;
     return update;
   }
 

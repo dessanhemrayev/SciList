@@ -11,6 +11,8 @@ Flutter-приложение для проверки научных журнал
 - Избранное и история поиска — хранятся локально в `SharedPreferences`.
 - Проверка обновлений: последний релиз GitHub, сравнение версий по числам,
   проверка не чаще раза в 6 часов, ручная кнопка в настройках и «Пропустить версию».
+- Push-уведомления о `feat:`/`fix:`-релизах через Firebase Cloud Messaging: общий топик `updates`,
+  переключатель в настройках, проверка по GitHub API по факту тапа по уведомлению.
 - Светлая и тёмная темы, только портретная ориентация.
 
 ## Запуск
@@ -30,7 +32,10 @@ flutter analyze      # статический анализ
 (`.github/workflows/release.yml`). Тип повышения версии определяется по сообщениям коммитов:
 `feat:` — minor, `type!:` или `BREAKING CHANGE` — major, остальное — patch.
 
+Для `feat:`, `fix:` и breaking-релизов после публикации отправляется push в топик `updates`.
+Сборка Android требует `android/app/google-services.json`.
+
 ## Документация
 
 - [Подпись Android-релизов](docs/android-signing.md) — создание keystore, секреты GitHub Actions, локальная подписанная сборка.
-- [Push-уведомления о релизах (FCM)](docs/fcm-update-notifications.md) — план: уведомления о `feat:` и `fix:` релизах.
+- [Push-уведомления о релизах (FCM)](docs/fcm-update-notifications.md) — Firebase, топик `updates`, секреты и отправка из workflow.

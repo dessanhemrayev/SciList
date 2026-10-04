@@ -7,7 +7,9 @@ import 'presentation/routes/app_router.dart';
 import 'presentation/providers/journal_provider.dart';
 import 'presentation/providers/history_provider.dart';
 import 'presentation/providers/favorites_provider.dart';
+import 'presentation/providers/push_provider.dart';
 import 'presentation/providers/update_provider.dart';
+import 'presentation/widgets/update/update_prompt.dart';
 import 'core/theme/app_theme.dart';
 
 Future<void> main() async {
@@ -38,6 +40,9 @@ Future<void> main() async {
         ChangeNotifierProvider(
           create: (_) => UpdateProvider(prefs),
         ),
+        ChangeNotifierProvider(
+          create: (_) => PushProvider(prefs),
+        ),
       ],
       child: const SciListApp(),
     ),
@@ -57,13 +62,15 @@ class SciListApp extends StatelessWidget {
       themeMode: ThemeMode.system,
       routerConfig: appRouter,
       builder: (context, child) {
-        return MediaQuery(
-          data: MediaQuery.of(context).copyWith(
-            textScaler: TextScaler.linear(
-              MediaQuery.of(context).textScaler.scale(1.0).clamp(0.85, 1.3),
+        return UpdatePrompt(
+          child: MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              textScaler: TextScaler.linear(
+                MediaQuery.of(context).textScaler.scale(1.0).clamp(0.85, 1.3),
+              ),
             ),
+            child: child!,
           ),
-          child: child!,
         );
       },
     );

@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:go_router/go_router.dart';
 import '../../presentation/screens/home_screen.dart';
 import '../../presentation/screens/journal_detail_screen.dart';
@@ -5,7 +6,12 @@ import '../../presentation/screens/history_screen.dart';
 import '../../presentation/screens/favorites_screen.dart';
 import '../../presentation/screens/settings_screen.dart';
 
+/// Корневой навигатор. Нужен, чтобы показать диалог об обновлении из
+/// виджета, стоящего выше Navigator (см. `update_prompt.dart`).
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
+
 final GoRouter appRouter = GoRouter(
+  navigatorKey: rootNavigatorKey,
   initialLocation: '/',
   routes: [
     GoRoute(
