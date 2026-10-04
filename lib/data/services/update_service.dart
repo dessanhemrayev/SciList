@@ -66,6 +66,7 @@ class UpdateService {
       if (!VersionCompare.isNewer(latest.version, currentVersion)) return null;
       return latest;
     } catch (_) {
+      _lastCheckFailed = true;
       return null;
     }
   }
