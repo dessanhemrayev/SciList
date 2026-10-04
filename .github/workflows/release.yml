@@ -76,6 +76,32 @@ jobs:
           channel: stable
           cache: true
 
+      # NDK закреплён в android/app/build.gradle.kts; на чистом раннере его нет,
+      # а Gradle не может поставить его без принятых лицензий
+      - name: Install Android NDK
+        run: |
+          sdk_root="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          sdkmanager=$(command -v sdkmanager || ls "$sdk_root"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -n1 || true)
+          if [ -z "$sdkmanager" ]; then
+            echo "::error::sdkmanager не найден (ANDROID_HOME=$sdk_root)"
+            ls -la "$sdk_root" "$sdk_root/cmdline-tools" || true
+            exit 1
+          fi
+          echo "sdkmanager: $sdkmanager"
+
+          ndk=$(grep -oE 'ndkVersion = "[^"]+"' android/app/build.gradle.kts | cut -d'"' -f2)
+          if [ -z "$ndk" ]; then
+            echo "::error::ndkVersion не найден в android/app/build.gradle.kts"
+            exit 1
+          fi
+
+          set +o pipefail
+          yes | "$sdkmanager" --licenses > /dev/null
+          set -o pipefail
+          "$sdkmanager" "ndk;$ndk"
+
+          test -d "$sdk_root/ndk/$ndk" || { echo "::error::NDK $ndk не установился"; ls "$sdk_root/ndk" || true; exit 1; }
+
       - name: Restore keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
