@@ -1,0 +1,35 @@
+name: scilist
+description: "SciList Белый список научных журналов"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^2.0.0
+  dio: ^5.4.0
+  provider: ^6.1.1
+  shared_preferences: ^2.2.2
+  go_router: ^18.0.2
+  intl: ^0.20.3
+  flutter_animate: ^4.5.0
+  cached_network_image: ^4.0.4
+  url_launcher: ^6.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icon.png"
+  min_sdk_android: 21
+
+flutter:
+  uses-material-design: true
