@@ -1,0 +1,124 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+
+# Один релиз за раз, чтобы параллельные пуши не конфликтовали при бампе версии
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # Коммит с бампом версии помечен [skip ci] — защита от бесконечного цикла
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Rebase onto latest master
+        run: |
+          git fetch origin master
+          git rebase origin/master
+
+      # ---------- Версионирование ----------
+      # feat: -> minor, "type!:" или BREAKING CHANGE -> major, всё остальное -> patch
+      # Формат в pubspec.yaml: MAJOR.MINOR.PATCH+BUILD
+      - name: Bump version
+        id: version
+        run: |
+          current=$(grep -E '^version:' pubspec.yaml | sed -E 's/version:[[:space:]]*//')
+          name=${current%%+*}
+          build=${current##*+}
+          IFS=. read -r major minor patch <<< "$name"
+
+          before="${{ github.event.before }}"
+          if [[ "$before" =~ ^0+$ ]] || ! git cat-file -e "$before" 2>/dev/null; then
+            range="HEAD~1..HEAD"
+          else
+            range="$before..HEAD"
+          fi
+          messages=$(git log "$range" --format='%s%n%b')
+
+          if echo "$messages" | grep -qE '^[a-z]+(\([^)]*\))?!:|BREAKING CHANGE'; then
+            major=$((major + 1)); minor=0; patch=0
+          elif echo "$messages" | grep -qE '^feat(\([^)]*\))?:'; then
+            minor=$((minor + 1)); patch=0
+          else
+            patch=$((patch + 1))
+          fi
+          build=$((build + 1))
+
+          new_name="$major.$minor.$patch"
+          sed -i -E "s/^version:.*/version: $new_name+$build/" pubspec.yaml
+
+          echo "name=$new_name" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "tag=v$new_name" >> "$GITHUB_OUTPUT"
+          echo "Version: $current -> $new_name+$build"
+
+      # ---------- Сборка ----------
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Restore keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Секрет ANDROID_KEYSTORE_BASE64 не задан. Без постоянной подписи обновления поверх установленной версии не встанут."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/upload-keystore.jks
+          cat > android/key.properties <<PROPS
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}
+          keyAlias=$KEY_ALIAS
+          storeFile=upload-keystore.jks
+          PROPS
+
+      - run: flutter pub get
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Rename APK
+        run: mv build/app/outputs/flutter-apk/app-release.apk "SciList-${{ steps.version.outputs.tag }}.apk"
+
+      # ---------- Публикация ----------
+      # Коммит и тег пушим только после успешной сборки, иначе при падении остаётся тег без релиза
+      - name: Commit version and tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pubspec.yaml
+          git commit -m "chore(release): ${{ steps.version.outputs.tag }} [skip ci]"
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin HEAD:master --follow-tags
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            "SciList-${{ steps.version.outputs.tag }}.apk" \
+            --title "SciList ${{ steps.version.outputs.tag }}" \
+            --generate-notes
