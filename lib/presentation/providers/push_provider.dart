@@ -42,6 +42,7 @@ class PushProvider extends ChangeNotifier {
   bool _enabled = false;
   bool _isBusy = false;
   bool _permissionGranted = false;
+  bool _disposed = false;
 
   /// Сохранённое намерение пользователя.
   bool get isEnabled => _enabled;
@@ -103,24 +104,42 @@ class PushProvider extends ChangeNotifier {
 
   Future<PushToggleResult> _store(bool value) async {
     _enabled = value;
+    // Выключили уведомления: накопленные сообщения устарели и не должны
+    // всплыть диалогом уже после этого
+    if (!value) _messages.clear();
     await _prefs.setBool(PushConstants.enabledKey, value);
     return PushToggleResult.updated;
   }
 
+  /// После каждого `await` проверяется [_disposed]: провайдер могли
+  /// уничтожить, пока шла инициализация Firebase, и подписки нельзя
+  /// создавать уже после этого.
   Future<void> _initialize() async {
     await _service.initialize();
+    if (_disposed) return;
     if (!_service.isAvailable) {
       notifyListeners();
       return;
     }
 
     // Разрешение могли отозвать, пока приложение не запускалось
-    if (_enabled) _permissionGranted = await _service.hasPermission();
+    if (_enabled) {
+      final granted = await _service.hasPermission();
+      if (_disposed) return;
+      _permissionGranted = granted;
+    }
 
-    _messageSub = _service.onMessage.listen(_enqueue);
+    // Сообщение в открытое приложение приходит без участия пользователя, и
+    // если уведомления выключены (в том числе после неудачной отписки),
+    // диалог показывать нельзя. Тап по уведомлению в трее, наоборот, явное
+    // действие пользователя: на него диалог нужен при любой настройке.
+    _messageSub = _service.onMessage.listen((message) {
+      if (isActive) _enqueue(message);
+    });
     _messageOpenedSub = _service.onMessageOpened.listen(_enqueue);
 
     final initial = await _service.takeInitialMessage();
+    if (_disposed) return;
     // Сообщение из уведомления попадает в ту же очередь, что и остальные.
     // Одно уведомление подписчиков покрывает и появление isAvailable.
     if (initial != null) _messages.add(initial);
@@ -132,8 +151,17 @@ class PushProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Асинхронные методы (`setEnabled`, `refreshPermission`) могут закончиться
+  /// после [dispose], а уведомлять уничтоженный провайдер нельзя.
+  @override
+  void notifyListeners() {
+    if (_disposed) return;
+    super.notifyListeners();
+  }
+
   @override
   void dispose() {
+    _disposed = true;
     unawaited(_messageSub?.cancel());
     unawaited(_messageOpenedSub?.cancel());
     super.dispose();

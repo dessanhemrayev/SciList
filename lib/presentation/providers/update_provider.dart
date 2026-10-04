@@ -71,8 +71,16 @@ class UpdateProvider extends ChangeNotifier {
   /// Проверка по push-уведомлению: таймер игнорируется, но пропущенная
   /// пользователем версия по-прежнему не предлагается.
   Future<UpdateInfo?> checkFromPush() async {
+    return (await checkFromPushDetailed()).update;
+  }
+
+  /// То же, что [checkFromPush], но с итогом проверки: по null нельзя отличить
+  /// «обновлений нет» от сбоя сети, а пользователю, тапнувшему по уведомлению,
+  /// при сбое нужно предложить повторить.
+  Future<({UpdateCheckResult result, UpdateInfo? update})>
+      checkFromPushDetailed() async {
     final result = await checkForUpdates(force: true);
-    return _claimForPrompt(result, _availableUpdate);
+    return (result: result, update: _claimForPrompt(result, _availableUpdate));
   }
 
   /// Отдаёт версию под диалог ровно один раз: пропущенную пользователем,

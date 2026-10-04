@@ -69,6 +69,13 @@ class _FakePushService extends PushService {
   }
 }
 
+class _SlowInitPushService extends _FakePushService {
+  final initialized = Completer<void>();
+
+  @override
+  Future<void> initialize() => initialized.future;
+}
+
 /// Провайдер инициализирует FCM асинхронно, поэтому в тестах ждём его.
 Future<void> _settle() => Future<void>.delayed(Duration.zero);
 
@@ -203,6 +210,7 @@ test('сообщение при закрытом приложении попад
       await service.close();
     });
     await _settle();
+    await provider.setEnabled(true);
 
     service.emit(RemoteMessage());
     service.emitOpened(RemoteMessage());
@@ -212,5 +220,75 @@ test('сообщение при закрытом приложении попад
     expect(provider.takeMessage(), isNotNull);
     expect(provider.takeMessage(), isNotNull);
     expect(provider.hasMessages, isFalse);
+  });
+
+  test('при выключенных уведомлениях сообщение в открытое приложение игнорируется',
+      () async {
+    final service = _FakePushService();
+    final provider = PushProvider(await _prefs(), service: service);
+    addTearDown(() async {
+      provider.dispose();
+      await service.close();
+    });
+    await _settle();
+
+    // Так выглядит сообщение, дошедшее после неудачной отписки
+    service.emit(RemoteMessage());
+    await _settle();
+
+    expect(provider.hasMessages, isFalse);
+  });
+
+  test('тап по уведомлению открывает диалог даже при выключенной настройке',
+      () async {
+    final service = _FakePushService();
+    final provider = PushProvider(await _prefs(), service: service);
+    addTearDown(() async {
+      provider.dispose();
+      await service.close();
+    });
+    await _settle();
+
+    service.emitOpened(RemoteMessage());
+    await _settle();
+
+    expect(provider.hasMessages, isTrue);
+  });
+
+  test('выключение уведомлений очищает накопленные сообщения', () async {
+    final service = _FakePushService();
+    final provider = PushProvider(await _prefs(), service: service);
+    addTearDown(() async {
+      provider.dispose();
+      await service.close();
+    });
+    await _settle();
+    await provider.setEnabled(true);
+
+    service.emit(RemoteMessage());
+    await _settle();
+    expect(provider.hasMessages, isTrue);
+
+    await provider.setEnabled(false);
+
+    expect(provider.hasMessages, isFalse);
+  });
+
+  test('провайдер, уничтоженный во время инициализации, не создаёт подписки',
+      () async {
+    final service = _SlowInitPushService();
+    final provider = PushProvider(await _prefs(), service: service);
+
+    provider.dispose();
+    service.initialized.complete();
+    await _settle();
+
+    // Если бы подписка создалась после dispose, сообщение попало бы в очередь
+    // уничтоженного провайдера или бросило бы исключение при уведомлении
+    service.emit(RemoteMessage());
+    await _settle();
+
+    expect(provider.hasMessages, isFalse);
+    await service.close();
   });
 }

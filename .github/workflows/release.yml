@@ -238,6 +238,10 @@ jobs:
             -H "Content-Type: application/json" \
             -d "$payload"
 
+          # Ранний выход с кодом 0 (нет секретов) тоже даёт outcome=success,
+          # поэтому факт отправки фиксируем отдельным выходом
+          echo "sent=true" >> "$GITHUB_OUTPUT"
+
       # continue-on-error прячет ошибки, а релиз при этом зелёный.
       # Поэтому результат push-шагов выводится в summary прогона.
       - name: Report push status
@@ -249,6 +253,7 @@ jobs:
           AUTH_OUTCOME: ${{ steps.gcp-auth.outcome }}
           AUTH_TOKEN: ${{ steps.gcp-auth.outputs.access_token }}
           NOTIFY_OUTCOME: ${{ steps.notify.outcome }}
+          NOTIFY_SENT: ${{ steps.notify.outputs.sent }}
         run: |
           {
             echo "### Push-уведомление о релизе"
@@ -259,8 +264,10 @@ jobs:
             if [ "$AUTH_OUTCOME" != "success" ] || [ -z "$AUTH_TOKEN" ]; then
               echo "- ⚠️ OAuth-токен не выпущен, уведомление не отправлено. Нужна роль *Service Account Token Creator* на самом сервисном аккаунте. Лог: \`Authenticate in Google Cloud\`."
             fi
-            if [ "$NOTIFY_OUTCOME" = "success" ]; then
+            if [ "$NOTIFY_SENT" = "true" ]; then
               echo "- ✅ Уведомление отправлено в топик \`updates\`."
+            elif [ "$NOTIFY_OUTCOME" = "success" ]; then
+              echo "- ⚠️ Запрос в FCM не отправлялся: не задан \`FCM_PROJECT_ID\` или не выпущен токен. Лог: \`Notify about release\`."
             else
               echo "- ⚠️ Запрос в FCM не прошёл, уведомление не отправлено. Лог: \`Notify about release\`."
             fi

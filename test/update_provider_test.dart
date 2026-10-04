@@ -188,6 +188,33 @@ void main() {
     expect(results.whereType<UpdateInfo>(), [_update]);
   });
 
+  test('проверка по push различает сбой сети и отсутствие обновлений', () async {
+    final failing = UpdateProvider(await _prefs(), service: _FailingUpdateService());
+    final failed = await failing.checkFromPushDetailed();
+    expect(failed.result, UpdateCheckResult.failed);
+    expect(failed.update, isNull);
+
+    final upToDate = UpdateProvider(
+      await _prefs(),
+      service: _FakeUpdateService(null),
+    );
+    final none = await upToDate.checkFromPushDetailed();
+    expect(none.result, UpdateCheckResult.upToDate);
+    expect(none.update, isNull);
+  });
+
+  test('повторная проверка по push находит релиз, вышедший после первой', () async {
+    final service = _FakeUpdateService(null);
+    final provider = UpdateProvider(await _prefs(), service: service);
+
+    expect((await provider.checkFromPushDetailed()).update, isNull);
+
+    service.update = _update;
+    final retry = await provider.checkFromPushDetailed();
+    expect(retry.result, UpdateCheckResult.updateAvailable);
+    expect(retry.update, _update);
+  });
+
   test('повторный push той же версии не открывает диалог заново', () async {
     final provider = UpdateProvider(
       await _prefs(),

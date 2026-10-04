@@ -49,6 +49,13 @@ class _UpdatePromptState extends State<UpdatePrompt> {
   Future<void> _showNext() async {
     final message = _push?.takeMessage();
     if (message == null) return;
+    await _checkAndPrompt();
+  }
+
+  /// Одна проверка с диалогом. Сообщение из очереди уже забрано и обратно не
+  /// возвращается: повтор при сбое сети запускает только пользователь кнопкой
+  /// «Повторить», иначе недоступная сеть привела бы к бесконечному циклу.
+  Future<void> _checkAndPrompt() async {
     _isShowing = true;
 
     try {
@@ -57,12 +64,14 @@ class _UpdatePromptState extends State<UpdatePrompt> {
       // так же, то есть пропущенный релиз повторно не предлагается.
       final updates = context.read<UpdateProvider>();
       final navigatorContext = rootNavigatorKey.currentContext;
-      final update = await updates.checkFromPush();
+      final (:result, :update) = await updates.checkFromPushDetailed();
 
-      if (update != null &&
-          navigatorContext != null &&
-          navigatorContext.mounted) {
-        await presentUpdateDialog(navigatorContext, update);
+      if (navigatorContext != null && navigatorContext.mounted) {
+        if (update != null) {
+          await presentUpdateDialog(navigatorContext, update);
+        } else if (result == UpdateCheckResult.failed) {
+          _showRetry(navigatorContext);
+        }
       }
     } finally {
       _isShowing = false;
@@ -70,6 +79,22 @@ class _UpdatePromptState extends State<UpdatePrompt> {
 
     // Пока был открыт диалог, могли прийти ещё сообщения
     if (mounted) _onPushChanged();
+  }
+
+  void _showRetry(BuildContext navigatorContext) {
+    ScaffoldMessenger.maybeOf(navigatorContext)?.showSnackBar(
+      SnackBar(
+        content: const Text('Не удалось проверить обновления'),
+        duration: const Duration(seconds: 10),
+        action: SnackBarAction(
+          label: 'Повторить',
+          onPressed: () {
+            if (_isShowing || !mounted) return;
+            unawaited(_checkAndPrompt());
+          },
+        ),
+      ),
+    );
   }
 
   @override
