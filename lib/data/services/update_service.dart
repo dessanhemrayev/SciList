@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:dio/dio.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../core/constants/update_constants.dart';
 import '../../core/utils/version_compare.dart';
 import '../models/update_info.dart';
@@ -68,6 +72,40 @@ class UpdateService {
     } catch (_) {
       _lastCheckFailed = true;
       return null;
+    }
+  }
+
+  Future<String> downloadApk(
+    UpdateInfo update, {
+    required void Function(int received, int total) onReceiveProgress,
+  }) async {
+    final directory = await getTemporaryDirectory();
+    final path = '${directory.path}/scilist-update-${update.version}.apk';
+    final file = File(path);
+    if (await file.exists()) await file.delete();
+
+    try {
+      await _dio.download(
+        update.apkUrl,
+        path,
+        onReceiveProgress: onReceiveProgress,
+      );
+      return path;
+    } catch (_) {
+      if (await file.exists()) await file.delete();
+      rethrow;
+    }
+  }
+
+  Future<bool> openApk(String path) async {
+    try {
+      final result = await OpenFilex.open(
+        path,
+        type: 'application/vnd.android.package-archive',
+      );
+      return result.type == ResultType.done;
+    } catch (_) {
+      return false;
     }
   }
 

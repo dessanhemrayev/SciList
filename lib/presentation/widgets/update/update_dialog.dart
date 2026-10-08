@@ -16,11 +16,22 @@ Future<void> presentUpdateDialog(BuildContext context, UpdateInfo update) async 
     case UpdateDialogAction.skip:
       await provider.skipVersion(update.version);
     case UpdateDialogAction.update:
-      final opened = await provider.openDownload(update);
-      if (!opened && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Не удалось открыть ссылку на загрузку')),
+      if (provider.isAndroid) {
+        await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => _UpdateDownloadDialog(
+            provider: provider,
+            update: update,
+          ),
         );
+      } else {
+        final opened = await provider.openDownload(update);
+        if (!opened && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Не удалось открыть ссылку на загрузку')),
+          );
+        }
       }
     case UpdateDialogAction.later:
       return;
@@ -68,4 +79,116 @@ Future<UpdateDialogAction?> showUpdateDialog(
       ],
     ),
   );
+}
+
+class _UpdateDownloadDialog extends StatefulWidget {
+  const _UpdateDownloadDialog({required this.provider, required this.update});
+
+  final UpdateProvider provider;
+  final UpdateInfo update;
+
+  @override
+  State<_UpdateDownloadDialog> createState() => _UpdateDownloadDialogState();
+}
+
+class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
+  bool _downloadComplete = false;
+  bool _downloadFailed = false;
+  bool _installFailed = false;
+  bool _isInstalling = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _download());
+  }
+
+  Future<void> _download() async {
+    setState(() {
+      _downloadFailed = false;
+      _installFailed = false;
+    });
+    final success = await widget.provider.downloadUpdate(widget.update);
+    if (!mounted) return;
+    setState(() {
+      _downloadComplete = success;
+      _downloadFailed = !success;
+    });
+  }
+
+  Future<void> _install() async {
+    setState(() => _isInstalling = true);
+    final opened = await widget.provider.installDownloadedUpdate();
+    if (!mounted) return;
+    if (opened) {
+      Navigator.of(context).pop(true);
+    } else {
+      setState(() {
+        _isInstalling = false;
+        _installFailed = true;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: widget.provider,
+      builder: (context, _) {
+        final progress = widget.provider.downloadProgress;
+        return PopScope(
+          canPop: !widget.provider.isDownloading,
+          child: AlertDialog(
+            title: Text(
+              _downloadComplete ? 'Обновление скачано' : 'Загрузка версии ${widget.update.version}',
+            ),
+            content: SizedBox(
+              width: 320,
+              child: _downloadFailed
+                  ? const Text('Не удалось скачать обновление. Проверьте подключение и попробуйте ещё раз.')
+                  : _downloadComplete
+                      ? Text(
+                          _installFailed
+                              ? 'Не удалось открыть установщик. Попробуйте установить файл ещё раз.'
+                              : 'Версия ${widget.update.version} готова к установке.',
+                        )
+                      : Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            LinearProgressIndicator(value: progress),
+                            const SizedBox(height: 12),
+                            Text(
+                              progress == null
+                                  ? 'Загрузка...'
+                                  : 'Загрузка... ${(progress * 100).round()}%',
+                            ),
+                          ],
+                        ),
+            ),
+            actions: [
+              if (_downloadFailed)
+                TextButton(onPressed: _download, child: const Text('Повторить')),
+              if (_downloadComplete) ...[
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Позже'),
+                ),
+                FilledButton.icon(
+                  onPressed: _isInstalling ? null : _install,
+                  icon: const Icon(Icons.install_mobile_rounded, size: 20),
+                  label: Text(_isInstalling ? 'Открываем...' : 'Установить'),
+                ),
+              ],
+              if (_downloadFailed)
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Закрыть'),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }

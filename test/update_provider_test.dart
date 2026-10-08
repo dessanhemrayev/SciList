@@ -12,6 +12,7 @@ class _FakeUpdateService extends UpdateService {
 
   UpdateInfo? update;
   int checkCalls = 0;
+  String? openedApkPath;
 
   @override
   Future<String> getCurrentVersion() async => '1.0.0';
@@ -20,6 +21,22 @@ class _FakeUpdateService extends UpdateService {
   Future<UpdateInfo?> check() async {
     checkCalls++;
     return update;
+  }
+
+  @override
+  Future<String> downloadApk(
+    UpdateInfo update, {
+    required void Function(int received, int total) onReceiveProgress,
+  }) async {
+    onReceiveProgress(25, 100);
+    onReceiveProgress(100, 100);
+    return '/tmp/scilist-update-${update.version}.apk';
+  }
+
+  @override
+  Future<bool> openApk(String path) async {
+    openedApkPath = path;
+    return true;
   }
 }
 
@@ -265,6 +282,22 @@ void main() {
 
     expect(result, UpdateCheckResult.updateAvailable);
     expect(service.checkCalls, 2);
+  });
+
+  test('скачивает APK, обновляет прогресс и передаёт файл установщику', () async {
+    final service = _FakeUpdateService(_update);
+    final provider = UpdateProvider(await _prefs(), service: service);
+    addTearDown(provider.dispose);
+    final observedProgress = <double?>[];
+    provider.addListener(() => observedProgress.add(provider.downloadProgress));
+
+    expect(await provider.downloadUpdate(_update), isTrue);
+
+    expect(provider.isDownloading, isFalse);
+    expect(provider.downloadProgress, 1);
+    expect(observedProgress, contains(0.25));
+    expect(await provider.installDownloadedUpdate(), isTrue);
+    expect(service.openedApkPath, '/tmp/scilist-update-1.1.1.apk');
   });
 
   test('пропуск версии сохраняется в preferences', () async {
