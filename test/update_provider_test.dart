@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:scilist/core/constants/update_constants.dart';
@@ -13,6 +14,7 @@ class _FakeUpdateService extends UpdateService {
   UpdateInfo? update;
   int checkCalls = 0;
   String? openedApkPath;
+  int downloadCalls = 0;
 
   @override
   Future<String> getCurrentVersion() async => '1.0.0';
@@ -27,16 +29,40 @@ class _FakeUpdateService extends UpdateService {
   Future<String> downloadApk(
     UpdateInfo update, {
     required void Function(int received, int total) onReceiveProgress,
+    required CancelToken cancelToken,
   }) async {
+    downloadCalls++;
     onReceiveProgress(25, 100);
     onReceiveProgress(100, 100);
     return '/tmp/scilist-update-${update.version}.apk';
   }
 
   @override
-  Future<bool> openApk(String path) async {
+  Future<InstallApkResult> openApk(String path) async {
     openedApkPath = path;
-    return true;
+    return InstallApkResult.opened;
+  }
+}
+
+class _ControlledDownloadService extends _FakeUpdateService {
+  _ControlledDownloadService() : super(null);
+
+  final started = Completer<void>();
+  final response = Completer<String>();
+
+  @override
+  Future<String> downloadApk(
+    UpdateInfo update, {
+    required void Function(int received, int total) onReceiveProgress,
+    required CancelToken cancelToken,
+  }) {
+    downloadCalls++;
+    onReceiveProgress(25, 100);
+    if (!started.isCompleted) started.complete();
+    return Future.any<String>([
+      response.future,
+      cancelToken.whenCancel.then<String>((_) => throw Exception('cancelled')),
+    ]);
   }
 }
 
@@ -296,8 +322,39 @@ void main() {
     expect(provider.isDownloading, isFalse);
     expect(provider.downloadProgress, 1);
     expect(observedProgress, contains(0.25));
-    expect(await provider.installDownloadedUpdate(), isTrue);
+    expect(await provider.installDownloadedUpdate(), InstallApkResult.opened);
     expect(service.openedApkPath, '/tmp/scilist-update-1.1.1.apk');
+  });
+
+  test('parallel downloads share the same future and file', () async {
+    final service = _ControlledDownloadService();
+    final provider = UpdateProvider(await _prefs(), service: service);
+    addTearDown(provider.dispose);
+
+    final first = provider.downloadUpdate(_update);
+    await service.started.future;
+    final second = provider.downloadUpdate(_update);
+
+    expect(second, same(first));
+    expect(service.downloadCalls, 1);
+
+    service.response.complete('/tmp/scilist-update-1.1.1.apk');
+    expect(await Future.wait([first, second]), [true, true]);
+  });
+
+  test('cancelling a download waits for it to stop and resets its state', () async {
+    final service = _ControlledDownloadService();
+    final provider = UpdateProvider(await _prefs(), service: service);
+    addTearDown(provider.dispose);
+
+    final download = provider.downloadUpdate(_update);
+    await service.started.future;
+
+    await provider.cancelDownload();
+
+    expect(await download, isFalse);
+    expect(provider.isDownloading, isFalse);
+    expect(service.downloadCalls, 1);
   });
 
   test('пропуск версии сохраняется в preferences', () async {

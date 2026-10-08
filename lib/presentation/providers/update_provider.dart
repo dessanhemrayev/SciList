@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -17,6 +18,8 @@ class UpdateProvider extends ChangeNotifier {
   bool _isDownloading = false;
   double? _downloadProgress;
   String? _downloadedApkPath;
+  CancelToken? _downloadCancelToken;
+  Future<bool>? _downloadFuture;
   Future<UpdateCheckResult>? _checkFuture;
 
   UpdateProvider(this._prefs, {UpdateService? service})
@@ -165,16 +168,28 @@ class UpdateProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> downloadUpdate(UpdateInfo update) async {
-    if (_isDownloading) return false;
+  Future<bool> downloadUpdate(UpdateInfo update) {
+    final pendingDownload = _downloadFuture;
+    if (pendingDownload != null) return pendingDownload;
+
+    final cancelToken = CancelToken();
+    _downloadCancelToken = cancelToken;
     _isDownloading = true;
     _downloadProgress = null;
     _downloadedApkPath = null;
+    final download = Future<bool>.microtask(
+      () => _performDownload(update, cancelToken),
+    );
+    _downloadFuture = download;
     notifyListeners();
+    return download;
+  }
 
+  Future<bool> _performDownload(UpdateInfo update, CancelToken cancelToken) async {
     try {
       _downloadedApkPath = await _service.downloadApk(
         update,
+        cancelToken: cancelToken,
         onReceiveProgress: (received, total) {
           if (total <= 0) return;
           final progress = (received / total).clamp(0.0, 1.0).toDouble();
@@ -192,13 +207,24 @@ class UpdateProvider extends ChangeNotifier {
       return false;
     } finally {
       _isDownloading = false;
+      _downloadCancelToken = null;
+      _downloadFuture = null;
       notifyListeners();
     }
   }
 
-  Future<bool> installDownloadedUpdate() async {
+  Future<void> cancelDownload() async {
+    final pendingDownload = _downloadFuture;
+    if (pendingDownload == null) return;
+    _downloadCancelToken?.cancel('Download cancelled by user');
+    await pendingDownload;
+  }
+
+  Future<bool> openInstallSettings() => _service.openInstallSettings();
+
+  Future<InstallApkResult> installDownloadedUpdate() async {
     final path = _downloadedApkPath;
-    if (path == null) return false;
+    if (path == null) return InstallApkResult.failed;
     return _service.openApk(path);
   }
 

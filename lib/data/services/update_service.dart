@@ -1,6 +1,5 @@
-import 'dart:io';
-
 import 'package:dio/dio.dart';
+import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
@@ -8,11 +7,15 @@ import '../../core/constants/update_constants.dart';
 import '../../core/utils/version_compare.dart';
 import '../models/update_info.dart';
 
+enum InstallApkResult { opened, permissionRequired, failed }
+
 /// Проверка новых релизов SciList на GitHub.
 ///
 /// Любая ошибка (нет сети, 403 по лимиту, пустой релиз, нет APK-ассета)
 /// гасится и превращается в null: проверка обновлений не должна ломать запуск.
 class UpdateService {
+  static const _installChannel = MethodChannel('com.dessanhemrayev.scilist/update');
+
   final Dio _dio;
 
   bool _lastCheckFailed = false;
@@ -78,34 +81,51 @@ class UpdateService {
   Future<String> downloadApk(
     UpdateInfo update, {
     required void Function(int received, int total) onReceiveProgress,
+    required CancelToken cancelToken,
   }) async {
     final directory = await getTemporaryDirectory();
-    final path = '${directory.path}/scilist-update-${update.version}.apk';
-    final file = File(path);
-    if (await file.exists()) await file.delete();
+    final safeVersion = update.version.replaceAll(RegExp(r'[^0-9A-Za-z._-]'), '_');
+    final path = '${directory.path}/scilist-update-$safeVersion.apk';
 
+    await _dio.download(
+      update.apkUrl,
+      path,
+      onReceiveProgress: onReceiveProgress,
+      cancelToken: cancelToken,
+      deleteOnError: true,
+      options: Options(
+        connectTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(minutes: 5),
+      ),
+    );
+    return path;
+  }
+
+  Future<bool> openInstallSettings() async {
     try {
-      await _dio.download(
-        update.apkUrl,
-        path,
-        onReceiveProgress: onReceiveProgress,
-      );
-      return path;
+      await _installChannel.invokeMethod<void>('openInstallSettings');
+      return true;
     } catch (_) {
-      if (await file.exists()) await file.delete();
-      rethrow;
+      return false;
     }
   }
 
-  Future<bool> openApk(String path) async {
+  Future<InstallApkResult> openApk(String path) async {
     try {
+      final canInstall = await _installChannel.invokeMethod<bool>(
+        'canRequestInstallPackages',
+      );
+      if (canInstall != true) return InstallApkResult.permissionRequired;
+
       final result = await OpenFilex.open(
         path,
         type: 'application/vnd.android.package-archive',
       );
-      return result.type == ResultType.done;
+      return result.type == ResultType.done
+          ? InstallApkResult.opened
+          : InstallApkResult.failed;
     } catch (_) {
-      return false;
+      return InstallApkResult.failed;
     }
   }
 

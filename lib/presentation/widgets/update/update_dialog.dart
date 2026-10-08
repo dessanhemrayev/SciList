@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../data/models/update_info.dart';
+import '../../../data/services/update_service.dart';
 import '../../providers/update_provider.dart';
 
 enum UpdateDialogAction { update, later, skip }
@@ -95,6 +96,7 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
   bool _downloadComplete = false;
   bool _downloadFailed = false;
   bool _installFailed = false;
+  bool _installPermissionRequired = false;
   bool _isInstalling = false;
 
   @override
@@ -107,6 +109,7 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
     setState(() {
       _downloadFailed = false;
       _installFailed = false;
+      _installPermissionRequired = false;
     });
     final success = await widget.provider.downloadUpdate(widget.update);
     if (!mounted) return;
@@ -118,16 +121,34 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
 
   Future<void> _install() async {
     setState(() => _isInstalling = true);
-    final opened = await widget.provider.installDownloadedUpdate();
+    final result = await widget.provider.installDownloadedUpdate();
     if (!mounted) return;
-    if (opened) {
-      Navigator.of(context).pop(true);
-    } else {
-      setState(() {
-        _isInstalling = false;
-        _installFailed = true;
-      });
+    switch (result) {
+      case InstallApkResult.opened:
+        Navigator.of(context).pop(true);
+      case InstallApkResult.permissionRequired:
+        setState(() {
+          _isInstalling = false;
+          _installPermissionRequired = true;
+          _installFailed = false;
+        });
+      case InstallApkResult.failed:
+        setState(() {
+          _isInstalling = false;
+          _installFailed = true;
+        });
     }
+  }
+
+  Future<void> _openInstallSettings() async {
+    final opened = await widget.provider.openInstallSettings();
+    if (!mounted || opened) return;
+    setState(() => _installFailed = true);
+  }
+
+  Future<void> _cancelDownload() async {
+    await widget.provider.cancelDownload();
+    if (mounted) Navigator.of(context).pop(false);
   }
 
   @override
@@ -148,7 +169,9 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
                   ? const Text('Не удалось скачать обновление. Проверьте подключение и попробуйте ещё раз.')
                   : _downloadComplete
                       ? Text(
-                          _installFailed
+                          _installPermissionRequired
+                            ? 'Разрешите установку приложений из этого источника в настройках Android, затем вернитесь и нажмите «Установить».'
+                            : _installFailed
                               ? 'Не удалось открыть установщик. Попробуйте установить файл ещё раз.'
                               : 'Версия ${widget.update.version} готова к установке.',
                         )
@@ -167,6 +190,11 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
                         ),
             ),
             actions: [
+              if (widget.provider.isDownloading)
+                TextButton(
+                  onPressed: _cancelDownload,
+                  child: const Text('Отмена'),
+                ),
               if (_downloadFailed)
                 TextButton(onPressed: _download, child: const Text('Повторить')),
               if (_downloadComplete) ...[
@@ -174,6 +202,12 @@ class _UpdateDownloadDialogState extends State<_UpdateDownloadDialog> {
                   onPressed: () => Navigator.of(context).pop(false),
                   child: const Text('Позже'),
                 ),
+                if (_installPermissionRequired)
+                  TextButton.icon(
+                    onPressed: _openInstallSettings,
+                    icon: const Icon(Icons.settings_rounded, size: 20),
+                    label: const Text('Настройки'),
+                  ),
                 FilledButton.icon(
                   onPressed: _isInstalling ? null : _install,
                   icon: const Icon(Icons.install_mobile_rounded, size: 20),
