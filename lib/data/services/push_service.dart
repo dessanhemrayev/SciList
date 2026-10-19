@@ -37,7 +37,7 @@ class PushService {
     if (_initialized) return;
     _initialized = true;
     try {
-      await Firebase.initializeApp();
+      if (Firebase.apps.isEmpty) await Firebase.initializeApp();
       _available = true;
     } catch (_) {
       _available = false;

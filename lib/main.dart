@@ -1,5 +1,12 @@
+import 'dart:async';
+import 'dart:ui' show PlatformDispatcher;
+
+import 'package:firebase_analytics/firebase_analytics.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -14,6 +21,40 @@ import 'core/theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  var firebaseInitialized = false;
+  try {
+    await Firebase.initializeApp();
+    firebaseInitialized = true;
+  } catch (error, stackTrace) {
+    debugPrint('Firebase initialization failed: $error\n$stackTrace');
+  }
+
+  final crashlyticsSupported =
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
+  if (firebaseInitialized && crashlyticsSupported) {
+    FlutterError.onError = (details) {
+      FlutterError.presentError(details);
+      unawaited(FirebaseCrashlytics.instance.recordFlutterFatalError(details));
+    };
+    PlatformDispatcher.instance.onError = (error, stackTrace) {
+      unawaited(
+        FirebaseCrashlytics.instance.recordError(
+          error,
+          stackTrace,
+          fatal: true,
+        ),
+      );
+      return true;
+    };
+  }
+
+  final router = createAppRouter(
+    observers: firebaseInitialized
+        ? [FirebaseAnalyticsObserver(analytics: FirebaseAnalytics.instance)]
+        : const <NavigatorObserver>[],
+  );
 
   await initializeDateFormatting('ru_RU', null);
   await initializeDateFormatting('en_US', null);
@@ -44,13 +85,15 @@ Future<void> main() async {
           create: (_) => PushProvider(prefs),
         ),
       ],
-      child: const SciListApp(),
+      child: SciListApp(router: router),
     ),
   );
 }
 
 class SciListApp extends StatelessWidget {
-  const SciListApp({super.key});
+  const SciListApp({super.key, required this.router});
+
+  final GoRouter router;
 
   @override
   Widget build(BuildContext context) {
@@ -60,7 +103,7 @@ class SciListApp extends StatelessWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.system,
-      routerConfig: appRouter,
+      routerConfig: router,
       builder: (context, child) {
         return UpdatePrompt(
           child: MediaQuery(
