@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../providers/push_provider.dart';
 import '../providers/update_provider.dart';
@@ -131,6 +132,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               );
             },
+          ),
+          const SizedBox(height: 24),
+          Text('О приложении', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: colorScheme.outline.withValues(alpha: 0.15),
+              ),
+            ),
+            child: ListTile(
+              leading: Icon(Icons.code_rounded, color: colorScheme.primary),
+              title: const Text('Об авторе'),
+              subtitle: const Text('Разработчик SciList'),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => context.push('/about'),
+            ),
           ),
         ],
       ),
