@@ -61,6 +61,8 @@ Gradle-плагины `com.google.gms.google-services` и `com.google.firebase.c
 
 В приложении подключены Analytics (включая автоматическую регистрацию экранов) и Crashlytics для необработанных Flutter/platform ошибок. Включите оба продукта в Firebase Console. Для iOS отдельно добавьте Firebase-приложение с bundle ID из Xcode и поместите скачанный `GoogleService-Info.plist` в `ios/Runner/`; без этого файла Firebase на iPhone не инициализируется.
 
+Чтобы plist попал в приложение, откройте `ios/Runner.xcworkspace` в Xcode и добавьте `GoogleService-Info.plist` в группу `Runner`, выбрав target `Runner`. Проверьте, что файл появился в **Runner → Build Phases → Copy Bundle Resources**. Простого копирования файла в папку `ios/Runner/` недостаточно.
+
 Про `google-services.json`: файл не секретный, его можно хранить в репозитории (он и лежит в репозитории, `.gitignore` его не трогает). Если не хотите, храните его секретом и записывайте в CI так же, как keystore (см. [android-signing.md](android-signing.md)).
 
 ## 2. Приложение
