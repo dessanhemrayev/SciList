@@ -63,6 +63,8 @@ Gradle-плагины `com.google.gms.google-services` и `com.google.firebase.c
 
 Чтобы plist попал в приложение, откройте `ios/Runner.xcworkspace` в Xcode и добавьте `GoogleService-Info.plist` в группу `Runner`, выбрав target `Runner`. Проверьте, что файл появился в **Runner → Build Phases → Copy Bundle Resources**. Простого копирования файла в папку `ios/Runner/` недостаточно.
 
+Firebase сейчас не настраивается для Web: там нет зарегистрированного Firebase Web-приложения и `FirebaseOptions`. На Web Analytics и FCM отключены; для их включения зарегистрируйте Web-приложение и настройте сгенерированные `FirebaseOptions`.
+
 Про `google-services.json`: файл не секретный, его можно хранить в репозитории (он и лежит в репозитории, `.gitignore` его не трогает). Если не хотите, храните его секретом и записывайте в CI так же, как keystore (см. [android-signing.md](android-signing.md)).
 
 ## 2. Приложение

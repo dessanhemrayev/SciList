@@ -12,6 +12,8 @@ class FirebaseService {
       _initialization ??= _initializeOnce();
 
   static Future<bool> _initializeOnce() async {
+    if (kIsWeb) return false;
+
     try {
       if (Firebase.apps.isEmpty) await Firebase.initializeApp();
       _installCrashlyticsHandlers();
