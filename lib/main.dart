@@ -1,5 +1,9 @@
+import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, TargetPlatform;
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -11,9 +15,22 @@ import 'presentation/providers/push_provider.dart';
 import 'presentation/providers/update_provider.dart';
 import 'presentation/widgets/update/update_prompt.dart';
 import 'core/theme/app_theme.dart';
+import 'data/services/firebase_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  final firebaseInitialized = await FirebaseService.initialize();
+  final analyticsSupported =
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS ||
+      defaultTargetPlatform == TargetPlatform.macOS;
+
+  final router = createAppRouter(
+    observers: firebaseInitialized && analyticsSupported
+        ? [FirebaseAnalyticsObserver(analytics: FirebaseAnalytics.instance)]
+        : const <NavigatorObserver>[],
+  );
 
   await initializeDateFormatting('ru_RU', null);
   await initializeDateFormatting('en_US', null);
@@ -44,13 +61,15 @@ Future<void> main() async {
           create: (_) => PushProvider(prefs),
         ),
       ],
-      child: const SciListApp(),
+      child: SciListApp(router: router),
     ),
   );
 }
 
 class SciListApp extends StatelessWidget {
-  const SciListApp({super.key});
+  const SciListApp({super.key, required this.router});
+
+  final GoRouter router;
 
   @override
   Widget build(BuildContext context) {
@@ -60,7 +79,7 @@ class SciListApp extends StatelessWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.system,
-      routerConfig: appRouter,
+      routerConfig: router,
       builder: (context, child) {
         return UpdatePrompt(
           child: MediaQuery(

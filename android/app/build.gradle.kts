@@ -12,6 +12,7 @@ plugins {
     // Работает с файлом android/app/google-services.json (push-уведомления FCM).
     // Файл лежит в репозитории: см. docs/fcm-update-notifications.md
     id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
 }
 
 android {

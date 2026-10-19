@@ -24,6 +24,7 @@ plugins {
     // Генерирует ресурсы Firebase из android/app/google-services.json.
     // Без файла сборка падает — см. docs/fcm-update-notifications.md
     id("com.google.gms.google-services") version "4.5.0" apply false
+    id("com.google.firebase.crashlytics") version "3.0.8" apply false
 }
 
 include(":app")

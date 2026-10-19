@@ -1,7 +1,7 @@
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 import '../../core/constants/push_constants.dart';
+import 'firebase_service.dart';
 
 /// Тонкая обёртка над Firebase Cloud Messaging.
 ///
@@ -36,12 +36,7 @@ class PushService {
   Future<void> initialize() async {
     if (_initialized) return;
     _initialized = true;
-    try {
-      await Firebase.initializeApp();
-      _available = true;
-    } catch (_) {
-      _available = false;
-    }
+    _available = await FirebaseService.initialize();
   }
 
   /// Сообщение, по которому открыли приложение из уведомления, когда оно

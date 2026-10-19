@@ -57,13 +57,19 @@ fi
 4. Ограничить API-ключ в Google Cloud Console (APIs & Services → Credentials) по имени пакета и SHA-1 сертификата подписи.
 
 Файл уже лежит в `android/app/google-services.json`, проект Firebase — `scilist-739e7`.
-Gradle-плагин `com.google.gms.google-services` подключён в `android/settings.gradle.kts` и `android/app/build.gradle.kts`; **без файла сборка Android падает**.
+Gradle-плагины `com.google.gms.google-services` и `com.google.firebase.crashlytics` подключены в `android/settings.gradle.kts` и `android/app/build.gradle.kts`; **без файла сборка Android падает**.
+
+В приложении подключены Analytics (включая автоматическую регистрацию экранов) и Crashlytics для необработанных Flutter/platform ошибок. Включите оба продукта в Firebase Console. Для iOS отдельно добавьте Firebase-приложение с bundle ID из Xcode и поместите скачанный `GoogleService-Info.plist` в `ios/Runner/`; без этого файла Firebase на iPhone не инициализируется.
+
+Чтобы plist попал в приложение, откройте `ios/Runner.xcworkspace` в Xcode и добавьте `GoogleService-Info.plist` в группу `Runner`, выбрав target `Runner`. Проверьте, что файл появился в **Runner → Build Phases → Copy Bundle Resources**. Простого копирования файла в папку `ios/Runner/` недостаточно.
+
+Firebase сейчас не настраивается для Web: там нет зарегистрированного Firebase Web-приложения и `FirebaseOptions`. На Web Analytics и FCM отключены; для их включения зарегистрируйте Web-приложение и настройте сгенерированные `FirebaseOptions`.
 
 Про `google-services.json`: файл не секретный, его можно хранить в репозитории (он и лежит в репозитории, `.gitignore` его не трогает). Если не хотите, храните его секретом и записывайте в CI так же, как keystore (см. [android-signing.md](android-signing.md)).
 
 ## 2. Приложение
 
-**Зависимости.** `firebase_core`, `firebase_messaging`.
+**Зависимости.** `firebase_core`, `firebase_messaging`, `firebase_analytics`, `firebase_crashlytics`.
 
 **Разрешение.** Для Android 13+ нужен `POST_NOTIFICATIONS`: объявлен в `android/app/src/main/AndroidManifest.xml` и запрашивается в рантайме.
 Спрашивается не при старте, а когда пользователь включает переключатель «Уведомлять об обновлениях» в настройках.
